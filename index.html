@@ -1,16 +1,29 @@
 <html>
     <head>
-        <script src="Spectrogram-2v02.js"></script>
-        <script src="index.js?ver=4"></script>
+		<!-- Stylesheet -->
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.3.8/dist/darkly/bootstrap.min.css">
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
 
-	<!--Yes, I do enjoy abusing syntax so I can be lazy - why do you ask?-->
-        <style>@import url("https://bootswatch.com/5/darkly/bootstrap.min.css");</style>
+		<!-- Spectrogram library -->
+        <script src="Spectrogram-2v02.js"></script>
+
+		<!-- My jank code -->
+        <script src="index.js?ver=4"></script>
     </head>
     <body>
         <div class="text-center" style="margin-top:5%" id="root"></div>
 	<br />
-	<div class="bg-dark text-center container">    <!-- INLINE STYLING MY BELOVED >:) -->
-		<button id="start" class="btn btn-success" style="margin-top:5px;margin-bottom:1rem">Start</button>
+	<div class="bg-dark text-center container">
+		<button id="start" class="btn btn-success">Start</button>
+		<div class="dropdown">
+			<button class="btn btn-secondary dropdown-toggle" type="button" id="scaleDropdownBtn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Scale Options</button>
+			<div class="dropdown-menu" aria-labelledby="scaleDropdownBtn">
+				<a class="dropdown-item" href="#">Mel (Default)</a>
+				<a class="dropdown-item" href="#">Linear</a>
+				<a class="dropdown-item" href="#">Octave</a>
+				<a class="dropdown-item" href="#">Log</a>
+			</div>
+		</div>
 
 		<p id="log"></p>
 		
