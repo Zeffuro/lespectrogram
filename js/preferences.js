@@ -5,7 +5,7 @@ const Prefs = (() => {
     const DEFAULTS = {
         scaleType: "MEL",
         colorType: "JET",
-        fftSize: 2048,
+        fftSize: 4096,
         smoothing: 0.8,
         autoFit: true,
         direction: "right", // Data entering from right (scrolls left) or left (scrolls right)
