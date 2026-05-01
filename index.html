@@ -9,8 +9,14 @@
 		<!-- Spectrogram library -->
         <script src="Spectrogram-2v02.js"></script>
 
-		<!-- My jank code -->
-        <script src="index.js?ver=8"></script>
+		<!-- App modules (load order matters - plain scripts, not ES modules) -->
+		<script src="js/preferences.js?ver=5"></script>
+		<script src="js/scales.js?ver=5"></script>
+		<script src="js/colorMaps.js?ver=5"></script>
+		<script src="js/axes.js?ver=5"></script>
+		<script src="js/mic.js?ver=5"></script>
+		<script src="js/ui.js?ver=5"></script>
+		<script src="js/app.js?ver=5"></script>
     </head>
     <body>
 		<div id="plotWrap">
@@ -22,8 +28,12 @@
 		</div>
 	<br />
 	<div class="bg-dark text-center container">
-		<nav id="toolbar" class="navbar navbar-dark bg-secondary rounded px-3 mb-3">
+		<div id="spectroTooltip" style="display:none; position:absolute; pointer-events:none; background:rgba(0,0,0,0.8); color:#fff; border:1px solid #555; border-radius:4px; padding:4px 8px; font-size:12px; z-index:100; white-space:nowrap;"></div>
+
+		<nav id="toolbar" class="bg-secondary rounded px-3 py-2 mb-3">
 			<div class="btn-group me-3">
+				<button id="openFileBtn" class="btn btn-sm btn-info">Load Audio</button>
+				<input type="file" id="audioFileInput" accept="audio/*" style="display:none" />
 				<button id="startBtn" class="btn btn-sm btn-success">Start</button>
 				<button id="pauseBtn" class="btn btn-sm btn-warning" disabled>Pause</button>
 				<button id="stopBtn" class="btn btn-sm btn-danger" disabled>Stop</button>
@@ -42,7 +52,7 @@
 				</ul>
 			</div>
 
-			<div class="dropdown">
+			<div class="dropdown me-3">
 				<button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
 					Colors: <strong id="colorLabel">Jet</strong>
 				</button>
@@ -59,10 +69,83 @@
 					<li><a class="dropdown-item" href="#" data-color="GRAYSCALE">Grayscale</a></li>
 				</ul>
 			</div>
+
+			<div class="dropdown me-3">
+				<button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+					Resolution: <strong id="fftSizeLabel">2048</strong>
+				</button>
+				<ul id="fftSizeMenu" class="dropdown-menu dropdown-menu-dark"></ul>
+			</div>
+
+			<div class="dropdown">
+				<button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+					Settings
+				</button>
+				<div class="dropdown-menu dropdown-menu-dark p-3 settings-menu">
+					<h6 class="dropdown-header px-0">Smoothing</h6>
+					<div class="d-flex align-items-center mb-2">
+						<input type="range" class="form-range flex-grow-1 me-2" id="smoothingRange" min="0" max="0.95" step="0.05" />
+						<span id="smoothingVal" class="text-light small" style="min-width: 2.5em; text-align: right;">0.80</span>
+					</div>
+
+					<hr class="dropdown-divider" />
+					<h6 class="dropdown-header px-0">Display</h6>
+					<div class="form-check form-switch text-start">
+						<input class="form-check-input" type="checkbox" id="opt_autoFit">
+						<label class="form-check-label" for="opt_autoFit">Auto-fit to window</label>
+					</div>
+					<div class="form-check form-switch text-start">
+						<input class="form-check-input" type="checkbox" id="opt_showTooltip">
+						<label class="form-check-label" for="opt_showTooltip">Show Note Tooltip</label>
+					</div>
+
+					<div class="mt-2 text-start">
+						<span class="text-light small d-block mb-1">Scroll Direction</span>
+						<div class="form-check form-check-inline">
+							<input class="form-check-input" type="radio" name="opt_direction" id="dir_right" value="right">
+							<label class="form-check-label small" for="dir_right">Left. (New Data Right)</label>
+						</div>
+						<div class="form-check form-check-inline">
+							<input class="form-check-input" type="radio" name="opt_direction" id="dir_left" value="left">
+							<label class="form-check-label small" for="dir_left">Right. (New Data Left)</label>
+						</div>
+					</div>
+
+					<hr class="dropdown-divider" />
+					<h6 class="dropdown-header px-0">Microphone Processing</h6>
+					<div class="form-check form-switch text-start">
+						<input class="form-check-input" type="checkbox" id="opt_echoCancellation">
+						<label class="form-check-label" for="opt_echoCancellation">Echo Cancellation</label>
+					</div>
+					<div class="form-check form-switch text-start">
+						<input class="form-check-input" type="checkbox" id="opt_noiseSuppression">
+						<label class="form-check-label" for="opt_noiseSuppression">Noise Suppression</label>
+					</div>
+					<div class="form-check form-switch text-start">
+						<input class="form-check-input" type="checkbox" id="opt_autoGainControl">
+						<label class="form-check-label" for="opt_autoGainControl">Auto Gain Control</label>
+					</div>
+
+					<hr class="dropdown-divider" />
+					<a href="#" id="prefsResetBtn" class="dropdown-item text-warning text-start px-0">Reset to defaults</a>
+				</div>
+			</div>
 		</nav>
 
 		<div id="micHint" class="alert alert-info mt-2 text-center">
 			This app needs microphone access to visualize your voice. Click <strong>Start</strong> to begin.
+		</div>
+
+		<div id="restartHint" class="alert alert-warning mt-2 text-center" style="display:none">
+			Microphone settings changed. Click <strong>Stop</strong> then <strong>Start</strong> to apply.
+		</div>
+
+		<div id="audioPlayerWrap" class="mb-4 text-center" style="display:none;">
+			<div class="d-flex justify-content-center align-items-center">
+				<audio id="audioPlayer" controls style="width: 100%; max-width: 600px;"></audio>
+				<button id="closeAudioBtn" class="btn btn-sm btn-danger ms-2" title="Close Audio File & Return to Mic">X</button>
+			</div>
+			<p class="text-muted small mt-1" id="audioPlayerName"></p>
 		</div>
 
 		<p id="log"></p>

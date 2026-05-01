@@ -1,7 +1,8 @@
 #plotWrap {
     display: flex;
     justify-content: center;
-    margin: 2rem auto 0;
+    margin: 1rem auto 0;
+    min-height: 240px;
 }
 
 #freqAxis {
@@ -42,10 +43,19 @@
 #toolbar {
     display: flex;
     align-items: center;
+    justify-content: center;
     flex-wrap: wrap;
     gap: 8px;
 }
 
 #toolbar .navbar-text {
     font-size: 14px;
+}
+
+.settings-menu {
+    min-width: 280px;
+}
+
+.settings-menu .form-check-label {
+    color: #ddd;
 }
