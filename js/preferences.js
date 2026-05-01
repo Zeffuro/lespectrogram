@@ -10,6 +10,7 @@ const Prefs = (() => {
         autoFit: true,
         direction: "right", // Data entering from right (scrolls left) or left (scrolls right)
         showTooltip: true,  // Show Hz and exact Note on hover
+        showHoverLine: true, // Show horizontal hover tracking line
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false

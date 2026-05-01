@@ -83,6 +83,14 @@ function wireSettingsPanel(onChange) {
         });
     }
 
+    const hoverLineEl = document.getElementById("opt_showHoverLine");
+    if (hoverLineEl) {
+        hoverLineEl.addEventListener('change', () => {
+            Prefs.set("showHoverLine", hoverLineEl.checked);
+            onChange("showHoverLine", hoverLineEl.checked);
+        });
+    }
+
     document.querySelectorAll('input[name="opt_direction"]').forEach(el => {
         el.addEventListener('change', () => {
             if (el.checked) {
@@ -127,6 +135,9 @@ function applyPrefsToUI() {
 
     const tooltipEl = document.getElementById("opt_showTooltip");
     if (tooltipEl) tooltipEl.checked = !!p.showTooltip;
+
+    const hoverLineEl = document.getElementById("opt_showHoverLine");
+    if (hoverLineEl) hoverLineEl.checked = !!p.showHoverLine;
 
     const dirEl = document.querySelector(`input[name="opt_direction"][value="${p.direction}"]`);
     if (dirEl) dirEl.checked = true;

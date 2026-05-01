@@ -19,12 +19,18 @@ const App = (() => {
     let resizeTimer = null;
 
     let audioEl = null;
+    let fileSourceNode = null;
+    let micSourceNode = null;
+    let overlayCanvas = null;
+    let overlayCtx = null;
 
     function getScale() { return Prefs.get("scaleType"); }
     function getColor() { return Prefs.get("colorType"); }
 
     // Approximate columns/sec assuming requestAnimationFrame ~60 Hz.
     const COLUMNS_PER_SECOND = 60;
+    const FREQ_AXIS_W = 44;
+    const TIME_AXIS_H = 28;
 
     // Compute available canvas size from the viewport, leaving room for the
     // freq axis on the left, time axis below, and toolbar / page chrome.
@@ -36,7 +42,7 @@ const App = (() => {
             return { w: 1600, h: 600 };
         }
 
-        const axisLeft = 64 + 12;
+        const axisLeft = FREQ_AXIS_W + 12;
         const horizMargin = 32;
         const maxExpectedW = window.innerWidth - axisLeft - horizMargin;
 
@@ -59,27 +65,94 @@ const App = (() => {
         wfBufAry = { buffer: mappedBuf };
     }
 
+    function drawAxesOverlay() {
+        if (!overlayCanvas) return;
+        const w = overlayCanvas.width;
+        const h = overlayCanvas.height;
+        overlayCtx.clearRect(0, 0, w, h);
+
+        overlayCtx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        overlayCtx.fillRect(0, 0, FREQ_AXIS_W, h - TIME_AXIS_H);
+        overlayCtx.fillRect(0, h - TIME_AXIS_H, w, TIME_AXIS_H);
+
+        overlayCtx.fillStyle = "#eee";
+        overlayCtx.font = "12px sans-serif";
+        overlayCtx.textBaseline = "middle";
+
+        // Frequency Axis
+        overlayCtx.textAlign = "right";
+        const ticks = 8;
+        const nyquist = audioCtx ? (audioCtx.sampleRate / 2) : 24000;
+        const scale = getScale();
+        const displayH = h - TIME_AXIS_H;
+        for (let i = 0; i < ticks; i++) {
+            const frac = i / ticks;
+            const y = frac * displayH;
+            const hz = scaleToHz(1 - frac, nyquist, scale);
+            let drawY = y;
+            if (i === 0) drawY += 8;
+            overlayCtx.fillText(formatHz(Math.round(hz)), FREQ_AXIS_W - 4, drawY);
+        }
+
+        // Time Axis
+        overlayCtx.textBaseline = "bottom";
+        const seconds = Math.max(1, timeColumns / COLUMNS_PER_SECOND);
+        const tTicks = Math.min(12, Math.max(4, Math.round(seconds)));
+        const dir = Prefs.get("direction") || "right";
+        const displayW = w - FREQ_AXIS_W;
+
+        for (let i = 0; i <= tTicks; i++) {
+            const frac = i / tTicks;
+            const x = frac * displayW;
+            const s = dir === "right" ? (1 - frac) * seconds : frac * seconds;
+            let drawX = x + FREQ_AXIS_W;
+
+            if (i === 0) {
+                overlayCtx.textAlign = "left";
+                drawX += 4;
+            } else if (i === tTicks) {
+                overlayCtx.textAlign = "right";
+                drawX -= 4;
+            } else {
+                overlayCtx.textAlign = "center";
+            }
+
+            overlayCtx.fillText(`${s.toFixed(1)}s`, drawX, h - 6);
+        }
+    }
+
     function createWaterfall() {
         if (wf) wf.stop();
-        document.getElementById("root").innerHTML = "";
+        const root = document.getElementById("root");
+        root.innerHTML = "";
+        
         const opts = { onscreenParentId: "root" };
         const cmap = COLOR_MAPS[getColor()];
         if (cmap) opts.colorMap = cmap;
         wf = new Waterfall(wfBufAry, pxPerLine, timeColumns, Prefs.get("direction") || "right", opts);
         currentColor = getColor();
+        
+        // Grab or create axes canvas
+        overlayCanvas = document.getElementById("axesCanvas");
+        if (overlayCanvas) {
+            overlayCanvas.width = timeColumns + FREQ_AXIS_W;
+            overlayCanvas.height = pxPerLine + TIME_AXIS_H;
+            overlayCtx = overlayCanvas.getContext("2d");
+        }
+
+        drawAxesOverlay();
+
         wf.start();
     }
 
     function rebuildScale() {
         scaleMap = buildScaleMap(numBins, pxPerLine, audioCtx.sampleRate, getScale());
         currentScale = getScale();
-        buildFreqAxis("freqAxis", audioCtx.sampleRate, getScale(), pxPerLine, 8);
+        drawAxesOverlay();
     }
 
     function refreshTimeAxis() {
-        const seconds = Math.max(1, timeColumns / COLUMNS_PER_SECOND);
-        const ticks = Math.min(12, Math.max(4, Math.round(seconds)));
-        buildTimeAxis("timeAxis", seconds, ticks, Prefs.get("direction") || "right");
+        drawAxesOverlay();
     }
 
     // Handle mouse hover overlay
@@ -89,8 +162,9 @@ const App = (() => {
         if (!root || !tooltip) return;
 
         root.addEventListener("mousemove", (e) => {
-            if (!Prefs.get("showTooltip") || appState === "stopped" || !audioCtx) {
+            if (appState === "stopped" || !audioCtx || !overlayCanvas || !overlayCtx) {
                 tooltip.style.display = "none";
+                drawAxesOverlay();
                 return;
             }
 
@@ -98,18 +172,32 @@ const App = (() => {
             let y = e.clientY - rect.top;
             y = Math.max(0, Math.min(pxPerLine - 1, y));
 
-            // Waterfall visually draws top (0) = highest frequency (Nyquist).
-            const frac = 1 - (y / Math.max(1, pxPerLine - 1));
-            const hz = scaleToHz(frac, audioCtx.sampleRate / 2, getScale());
+            drawAxesOverlay();
+            if (Prefs.get("showHoverLine")) {
+                overlayCtx.strokeStyle = "rgba(255, 0, 0, 0.7)";
+                overlayCtx.lineWidth = 1;
+                overlayCtx.beginPath();
+                overlayCtx.moveTo(FREQ_AXIS_W, y);
+                overlayCtx.lineTo(timeColumns + FREQ_AXIS_W, y);
+                overlayCtx.stroke();
+            }
 
-            tooltip.textContent = hzToNoteString(hz);
-            tooltip.style.left = `${e.clientX + 15}px`;
-            tooltip.style.top = `${e.clientY + 15}px`;
-            tooltip.style.display = "block";
+            if (Prefs.get("showTooltip")) {
+                // Waterfall visually draws top (0) = highest frequency (Nyquist).
+                const frac = 1 - (y / Math.max(1, pxPerLine - 1));
+                const hz = scaleToHz(frac, audioCtx.sampleRate / 2, getScale());
+                tooltip.textContent = hzToNoteString(hz);
+                tooltip.style.left = `${e.clientX + 15}px`;
+                tooltip.style.top = `${e.clientY + 15}px`;
+                tooltip.style.display = "block";
+            } else {
+                tooltip.style.display = "none";
+            }
         });
 
         root.addEventListener("mouseleave", () => {
             tooltip.style.display = "none";
+            if (overlayCtx) drawAxesOverlay();
         });
     }
 
@@ -139,12 +227,70 @@ const App = (() => {
         if (el) el.style.display = show ? "" : "none";
     }
 
+    let lastNoteUpdateTs = 0;
+
+    function updateLastNote() {
+        if (!analyser || !frqBuf) return;
+        const now = performance.now();
+        if (now - lastNoteUpdateTs < 100) return;
+        lastNoteUpdateTs = now;
+
+        const sampleRate = audioCtx.sampleRate;
+        const fftSize = analyser.fftSize;
+        const binHz = sampleRate / fftSize;
+
+        // Search range for fundamental: ~50 Hz .. 2000 Hz (vocal range + headroom).
+        const minBin = Math.max(2, Math.floor(50 / binHz));
+        const maxBin = Math.min(frqBuf.length - 1, Math.floor(2000 / binHz));
+
+        // Quick silence check using raw spectrum max.
+        let rawMax = 0;
+        for (let i = minBin; i < frqBuf.length; i++) {
+            if (frqBuf[i] > rawMax) rawMax = frqBuf[i];
+        }
+        if (rawMax < 80) return;
+
+        // Harmonic Product Spectrum: multiply downsampled copies so the
+        // fundamental (whose harmonics line up at k, 2k, 3k...) wins over
+        // an overtone peak.
+        const H = 5;
+        const upper = Math.min(maxBin, Math.floor((frqBuf.length - 1) / H));
+        let bestK = -1, bestScore = 0;
+        for (let k = minBin; k <= upper; k++) {
+            let score = 1;
+            for (let h = 1; h <= H; h++) {
+                score *= (frqBuf[k * h] + 1);
+            }
+            if (score > bestScore) { bestScore = score; bestK = k; }
+        }
+        if (bestK < 0) return;
+
+        // Parabolic interpolation around bestK for sub-bin precision.
+        let refined = bestK;
+        if (bestK > 0 && bestK < frqBuf.length - 1) {
+            const a = frqBuf[bestK - 1], b = frqBuf[bestK], c = frqBuf[bestK + 1];
+            const denom = (a - 2 * b + c);
+            if (denom !== 0) {
+                const delta = 0.5 * (a - c) / denom;
+                if (delta > -1 && delta < 1) refined = bestK + delta;
+            }
+        }
+
+        const hz = refined * binHz;
+        const wrap = document.getElementById("lastNoteWrap");
+        const txt = document.getElementById("lastNoteText");
+        if (!wrap || !txt) return;
+        txt.textContent = hzToNoteString(hz);
+        if (wrap.style.display === "none") wrap.style.display = "";
+    }
+
     function draw() {
         if (appState !== "running") return;
         if (getScale() !== currentScale) rebuildScale();
         if (getColor() !== currentColor) createWaterfall();
         analyser.getByteFrequencyData(frqBuf);
         remapBins(frqBuf, mappedBuf, scaleMap);
+        updateLastNote();
 
         if (audioEl && (audioEl.paused || audioEl.ended) && appState === "running") {
             pause();
@@ -167,26 +313,31 @@ const App = (() => {
             await audioCtx.resume();
             if (audioEl) audioEl.play();
             appState = "running";
-            wf.start();
+            if (wf) wf.start();
             updateButtons();
             draw();
             return;
         }
 
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+            analyser = audioCtx.createAnalyser();
+        }
+        analyser.fftSize = Prefs.get("fftSize");
+        analyser.smoothingTimeConstant = Prefs.get("smoothing");
+
         if (audioEl) {
-            // First time loading file
-            if (!audioCtx) {
-                const ac = new AudioContext();
-                analyser = ac.createAnalyser();
-                analyser.fftSize = Prefs.get("fftSize");
-                analyser.smoothingTimeConstant = Prefs.get("smoothing");
+            if (micSourceNode) micSourceNode.disconnect();
+            analyser.disconnect();
 
-                ac.createMediaElementSource(audioEl).connect(analyser);
-                analyser.connect(ac.destination);
-
-                audioCtx = ac;
+            if (!fileSourceNode) {
+                fileSourceNode = audioCtx.createMediaElementSource(audioEl);
             }
+            fileSourceNode.disconnect();
+            fileSourceNode.connect(analyser);
+            analyser.connect(audioCtx.destination);
 
+            try { await audioCtx.resume(); } catch(e){}
             audioEl.play();
 
             buildAudioBuffers();
@@ -202,18 +353,21 @@ const App = (() => {
 
         setMicHint("waiting");
         try {
-            audioCtx = new AudioContext();
             mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: false,
                 audio: audioConstraints()
             });
         } catch { setMicHint("denied"); return; }
 
+        try { await audioCtx.resume(); } catch(e){}
         setMicHint("granted");
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = Prefs.get("fftSize");
-        analyser.smoothingTimeConstant = Prefs.get("smoothing");
-        audioCtx.createMediaStreamSource(mediaStream).connect(analyser);
+
+        analyser.disconnect(); // ensure we don't play mic out to speakers
+        if (fileSourceNode) fileSourceNode.disconnect();
+        if (micSourceNode) micSourceNode.disconnect();
+
+        micSourceNode = audioCtx.createMediaStreamSource(mediaStream);
+        micSourceNode.connect(analyser);
 
         buildAudioBuffers();
         rebuildScale();
@@ -226,32 +380,32 @@ const App = (() => {
     }
 
     async function pause() {
-        if (appState === "running") {
-            appState = "paused";
-            if (animFrameId) cancelAnimationFrame(animFrameId);
-            wf.stop();
-            await audioCtx.suspend();
-            if (audioEl) audioEl.pause();
-            updateButtons();
-        } else if (appState === "paused") {
-            await start();
+        if (appState !== "running") return;
+        appState = "paused";
+        if (animFrameId) cancelAnimationFrame(animFrameId);
+        if (wf) wf.stop();
+        // audioCtx suspend logic
+        if (audioCtx && audioCtx.state === "running") {
+            audioCtx.suspend().catch(e => console.warn(e));
         }
+        if (audioEl) audioEl.pause();
+        updateButtons();
     }
 
     function clearDisplay() {
         if (wf) { wf.stop(); wf.clear(); }
         document.getElementById("root").innerHTML = "";
-        const timeAxis = document.getElementById("timeAxis");
-        if (timeAxis) timeAxis.innerHTML = "";
-        const freqAxis = document.getElementById("freqAxis");
-        if (freqAxis) freqAxis.innerHTML = "";
+        const c = document.getElementById("axesCanvas");
+        if (c) {
+            const ctx = c.getContext("2d");
+            ctx.clearRect(0, 0, c.width, c.height);
+        }
     }
 
     function stop() {
         appState = "stopped";
         if (animFrameId) cancelAnimationFrame(animFrameId);
         if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
-        if (audioCtx && !audioEl) { audioCtx.close(); audioCtx = null; }
         if (audioEl) {
             audioEl.pause();
             audioEl.currentTime = 0;
@@ -267,33 +421,64 @@ const App = (() => {
         if (appState === "stopped") clearDisplay();
     }
 
-    function handleFileUpload(e) {
-        const file = e.target.files[0];
-        if (!file) return;
+    let droppedFile = null;
 
-        stop(); // stop existing session
-        reset();
+    function setFileBarVisible(visible) {
+        const bar = document.getElementById("audioFileBar");
+        if (bar) bar.classList.toggle("d-none", !visible);
+    }
 
-        document.getElementById("audioPlayerWrap").style.display = "";
+    function formatTime(s) {
+        if (!s || isNaN(s)) return "0:00";
+        const mins = Math.floor(s / 60);
+        const secs = Math.floor(s % 60).toString().padStart(2, '0');
+        return `${mins}:${secs}`;
+    }
+
+    async function handleFileUpload(file) {
+        if (!file || !file.type.startsWith("audio/")) return;
+
+        stop();
+        clearDisplay();
+
+        if (!audioCtx) {
+            audioCtx = new AudioContext();
+            analyser = audioCtx.createAnalyser();
+        }
+
+        droppedFile = file;
         document.getElementById("audioPlayerName").textContent = file.name;
-
-        const hintEl = document.getElementById("micHint");
-        if (hintEl) hintEl.style.display = "none"; // Hide mic hints
+        setFileBarVisible(true);
 
         if (!audioEl) {
             audioEl = document.getElementById("audioPlayer");
             audioEl.addEventListener('play', () => { if (appState !== "running") start(); });
             audioEl.addEventListener('pause', () => { if (appState === "running") pause(); });
             audioEl.addEventListener('seeked', () => {
-                if (wf) wf.clear();
                 if (appState !== "running" && !audioEl.paused) start();
             });
             audioEl.addEventListener('ended', pause);
+
+            const scrubber = document.getElementById("customAudioScrubber");
+            const audioTime = document.getElementById("customAudioTime");
+
+            audioEl.addEventListener('timeupdate', () => {
+                if (audioEl.duration) {
+                    scrubber.value = (audioEl.currentTime / audioEl.duration) * 100;
+                    audioTime.textContent = `${formatTime(audioEl.currentTime)} / ${formatTime(audioEl.duration)}`;
+                }
+            });
+
+            scrubber.addEventListener('input', () => {
+                if (audioEl.duration) {
+                    audioEl.currentTime = (scrubber.value / 100) * audioEl.duration;
+                }
+            });
         }
 
         audioEl.src = URL.createObjectURL(file);
 
-        start().catch(e => console.warn("Autoplay blocked", e));
+        start();
     }
 
     function onPrefChanged(key, value) {
@@ -319,14 +504,21 @@ const App = (() => {
         Prefs.load();
 
         document.getElementById("startBtn").addEventListener('click', start);
-        document.getElementById("pauseBtn").addEventListener('click', pause);
+
+        document.getElementById("pauseBtn").addEventListener('click', () => {
+            if (appState === "running") pause();
+            else if (appState === "paused") start();
+        });
+
         document.getElementById("stopBtn").addEventListener('click', stop);
         document.getElementById("resetBtn").addEventListener('click', reset);
 
         document.getElementById("openFileBtn").addEventListener('click', () => {
             document.getElementById("audioFileInput").click();
         });
-        document.getElementById("audioFileInput").addEventListener('change', handleFileUpload);
+        document.getElementById("audioFileInput").addEventListener('change', (e) => {
+            handleFileUpload(e.target.files[0]);
+        });
 
         const closeAudioBtn = document.getElementById("closeAudioBtn");
         if (closeAudioBtn) {
@@ -336,7 +528,8 @@ const App = (() => {
                     audioEl.src = "";
                     audioEl = null;
                 }
-                document.getElementById("audioPlayerWrap").style.display = "none";
+                droppedFile = null;
+                setFileBarVisible(false);
                 document.getElementById("audioFileInput").value = "";
                 checkMicPermission();
             });
@@ -350,6 +543,8 @@ const App = (() => {
         attachTooltipEvents();
 
         window.addEventListener('resize', onWindowResize);
+
+        if (!droppedFile) setFileBarVisible(false);
 
         updateButtons();
         checkMicPermission();

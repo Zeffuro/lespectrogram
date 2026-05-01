@@ -18,30 +18,9 @@ function formatHz(hz) {
 }
 
 function buildFreqAxis(containerId, sampleRate, scale, numPx, ticks = 6) {
-    const nyquist = sampleRate / 2;
-    buildAxisTicks(containerId, ticks, (frac) => ({
-        className: "freq-tick",
-        posProp: "top",
-        posPercent: frac * 100,
-        transform: "translateY(-50%)",
-        label: formatHz(Math.round(scaleToHz(1 - frac, nyquist, scale)))
-    }));
+    // Replaced by canvas drawing in app.js
 }
 
 function buildTimeAxis(containerId, secondsVisible = 8, ticks = 8, direction = "right") {
-    buildAxisTicks(containerId, ticks, (frac) => {
-        // frac is from 0 (left edge) to 1 (right edge).
-        const s = direction === "right"
-            ? (1 - frac) * secondsVisible
-            : frac * secondsVisible;
-
-        return {
-            className: "time-tick",
-            posProp: "left",
-            posPercent: frac * 100,
-            transform: "translateX(-50%)",
-            label: `${s.toFixed(1)}s`
-        };
-    });
+    // Replaced by canvas drawing in app.js
 }
-
