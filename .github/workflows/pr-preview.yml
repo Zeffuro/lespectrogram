@@ -1,0 +1,23 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create or update preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-preview
+          message: |
+            ## Test this PR live!
+            
+            Click the link below to preview these changes in your browser:
+            [Live Preview](https://raw.githack.com/${{ github.event.pull_request.head.repo.full_name }}/${{ github.event.pull_request.head.sha }}/index.html)
+            
+            *(Updated for commit ${{ github.event.pull_request.head.sha }})*
